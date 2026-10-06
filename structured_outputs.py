@@ -1,6 +1,4 @@
 import os
-import json
-import requests
 from typing import List
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -9,39 +7,13 @@ from pydantic import BaseModel, Field
 # Carica le variabili d'ambiente (.env)
 load_dotenv()
 
-client = OpenAI(
-    base_url="https://openrouter.ai/api/v1",
-    api_key=os.getenv("OPENROUTER_API_KEY")
-)
-
-def get_free_model() -> str:
-    """Seleziona dinamicamente un modello gratuito attivo su OpenRouter."""
-    try:
-        response = requests.get("https://openrouter.ai/api/v1/models")
-        if response.status_code == 200:
-            models = response.json().get("data", [])
-            # Cerca primariamente un modello Gemini gratuito
-            for model in models:
-                model_id = model.get("id", "")
-                if "gemini" in model_id and model_id.endswith(":free"):
-                    print(f"Modello Gemini selezionato: {model_id}")
-                    return model_id
-            # Fallback su qualsiasi modello :free
-            for model in models:
-                model_id = model.get("id", "")
-                if model_id.endswith(":free"):
-                    print(f"Modello gratuito selezionato: {model_id}")
-                    return model_id
-    except Exception as e:
-        print(f"Errore nel recupero modelli: {e}")
-    
-    return "google/gemini-2.0-flash-exp:free"
-
-MODEL_NAME = get_free_model()
+# Inizializza il client OpenAI nativo
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+MODEL_NAME = "gpt-4o-mini"
 
 
 # =====================================================================
-# ESEMPIO 1: Output Strutturato con Google Gemini (Estrazione Dati)
+# ESEMPIO 1: Output Strutturato con OpenAI (Estrazione Dati)
 # =====================================================================
 
 class SchedaProdotto(BaseModel):
@@ -53,9 +25,9 @@ class SchedaProdotto(BaseModel):
     valutazione_contro: List[str] = Field(description="Eventuali difetti o limitazioni")
 
 
-def esempio_structured_output_gemini():
+def esempio_structured_output_openai():
     print("\n" + "="*60)
-    print("ESEMPIO 1: Output Strutturato Pydantic con Gemini")
+    print("ESEMPIO 1: Output Strutturato Pydantic con OpenAI")
     print("="*60)
 
     recensione_testo = """
@@ -65,24 +37,16 @@ def esempio_structured_output_gemini():
     Di contro, la tastiera ha una corsa un po' breve e manca la porta Ethernet integrata.
     """
 
-    completion = client.chat.completions.create(
+    completion = client.beta.chat.completions.parse(
         model=MODEL_NAME,
         messages=[
-            {
-                "role": "system", 
-                "content": (
-                    "Sei un estrattore di dati preciso. "
-                    "Rispondi ESCLUSIVAMENTE con un JSON valido conforme a questo schema Pydantic:\n"
-                    f"{json.dumps(SchedaProdotto.model_json_schema())}"
-                )
-            },
+            {"role": "system", "content": "Sei un estrattore di dati preciso."},
             {"role": "user", "content": recensione_testo}
         ],
-        response_format={"type": "json_object"},
+        response_format=SchedaProdotto,
     )
 
-    raw_json = completion.choices[0].message.content
-    prodotto = SchedaProdotto.model_validate_json(raw_json)
+    prodotto = completion.choices[0].message.parsed
 
     print(f"💻 Prodotto: {prodotto.nome_prodotto}")
     print(f"📁 Categoria: {prodotto.categoria}")
@@ -118,24 +82,16 @@ def esempio_text_summarization():
     concludono che nei prossimi tre anni l'adozione dell'AI diventerà un requisito fondamentale di competitività, non più un opzionale.
     """
 
-    completion = client.chat.completions.create(
+    completion = client.beta.chat.completions.parse(
         model=MODEL_NAME,
         messages=[
-            {
-                "role": "system", 
-                "content": (
-                    "Sei un assistente editoriale specializzato nella sintesi di articoli complessi. "
-                    "Analizza il testo fornito e restituisci la sintesi in un formato JSON rigorosamente conforme a questo schema:\n"
-                    f"{json.dumps(SintesiArticolo.model_json_schema())}"
-                )
-            },
+            {"role": "system", "content": "Sei un assistente editoriale specializzato nella sintesi di articoli complessi."},
             {"role": "user", "content": articolo}
         ],
-        response_format={"type": "json_object"},
+        response_format=SintesiArticolo,
     )
 
-    raw_json = completion.choices[0].message.content
-    sintesi = SintesiArticolo.model_validate_json(raw_json)
+    sintesi = completion.choices[0].message.parsed
 
     print(f"📰 Titolo: {sintesi.titolo_sintetico}")
     print(f"🎯 Argomento: {sintesi.argomento_principale}")
@@ -151,5 +107,5 @@ def esempio_text_summarization():
 # =====================================================================
 
 if __name__ == "__main__":
-    esempio_structured_output_gemini()
+    esempio_structured_output_openai()
     esempio_text_summarization()
